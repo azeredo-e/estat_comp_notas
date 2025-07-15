@@ -42,18 +42,22 @@ Dado uma a.a. que segue `` X ∼ N(\mu, \sigma^2) `` com ``n = 5, 20, 100`` e ``
 
 # ╔═╡ 11ff7827-45be-4603-87d9-3dc64524c09b
 begin
-	nr = 10000 # Bootstrap samples replicas
+	nr = 10_000 # Bootstrap samples replicas
 	μ = 100
 	σ = 10
 	γ = 0.95
 
 	𝒩 = Normal(μ, σ)
+
+	μ₀ = 100 # Para o teste de hipótese
 	
 	Random.seed!(42)
 end;
 
 # ╔═╡ 22047530-2e1c-41c6-b2bd-1b5217ca74ab
 begin
+	α = 1 - γ
+	
 	amostra_original = rand(𝒩, n) |> sort
 	X_bar = mean(amostra_original)
 	σ_bar = std(amostra_original)
@@ -62,6 +66,15 @@ begin
 	btsp_param_estimados = [mean(rand(Normal(X_bar, σ_bar), n)) for _ in 1:nr]
 	btsp_n_param = [mean(sample(amostra_original, n)) for _ in 1:nr]
 end;
+
+# ╔═╡ 70f0a115-4331-4766-87dd-f0aa3e74b7c6
+md"""
+**Parâmetros extraídos da amostra**
+
+X\_bar: $X_bar
+
+σ\_bar: $σ_bar
+"""
 
 # ╔═╡ 00a022b2-ea06-4484-bc6f-b5103eafc32a
 md"""
@@ -106,8 +119,47 @@ md"""
 
 # ╔═╡ 820fb8d0-e0bc-4fa1-805d-16c152e7d427
 begin
-	IC_li_sigma = X_bar - 5*(σ/(n^.5))
-	IC_ls_sigma = X_bar + 5*(σ/(n^.5))
+	IC_li_btsp_sigma, IC_ls_btsp_sigma = quantile(btsp_sigma_conhecido, (α, 1-α))
+
+	md"""
+	**Bootstrap com sigma conhecido**
+	
+	Limite inferior: $IC_li_btsp_sigma
+	
+	Limite superior: $IC_ls_btsp_sigma
+	"""
+end
+
+# ╔═╡ 8fae44f7-8ece-42c8-8997-2433153793a9
+begin
+	IC_li_btsp_param, IC_ls_btsp_param = quantile(btsp_param_estimados, (α, 1-α))
+
+	md"""
+	**Bootstrap com nenhum parâmetro conhecido**
+	
+	Limite inferior: $IC_li_btsp_param
+	
+	Limite superior: $IC_ls_btsp_param
+	"""
+end
+
+# ╔═╡ 96984b89-af6f-4bb4-b9dc-13353ebd4f28
+begin
+	IC_li_btsp_nparam, IC_ls_btsp_nparam = quantile(btsp_n_param, (α, 1-α))
+
+	md"""
+	**Bootstrap não paramétrico**
+	
+	Limite inferior: $IC_li_btsp_nparam
+	
+	Limite superior: $IC_ls_btsp_nparam
+	"""
+end
+
+# ╔═╡ bff22759-c707-4d88-989a-18b589c66147
+begin
+	IC_li_sigma = X_bar + quantile(Normal(0,1), α) * σ/n^.5 
+	IC_ls_sigma = X_bar + quantile(Normal(0,1), 1-α) * σ/n^.5
 
 	md"""	
 	**Amostra com sigma conhecido**
@@ -118,18 +170,128 @@ begin
 	"""
 end
 
-# ╔═╡ 8fae44f7-8ece-42c8-8997-2433153793a9
+# ╔═╡ 1f04553f-5976-4ac2-bd3d-9e8226a02025
 begin
-	IC_li_params = X_bar - (quantile(TDist(n-1), (1-γ)/2) * σ_bar/n^.5)
-	IC_ls_params = X_bar + (quantile(TDist(n-1), (1-γ)/2) * σ_bar/n^.5)
+	IC_li_params = X_bar + quantile(TDist(n-1), α) * σ_bar/n^.5
+	IC_ls_params = X_bar + quantile(TDist(n-1), 1-α) * σ_bar/n^.5
 
-	md"""	
+	md"""
 	**Amostra com nenhum parâmetro conhecido**
 	
 	Limite inferior: $IC_li_params
 	
 	Limite superior: $IC_ls_params
 	"""
+end
+
+# ╔═╡ efa7db79-1dfa-41c1-80ae-e2970b68c7fa
+md"""
+## Teste de Hipótese
+"""
+
+# ╔═╡ 977948f5-0f81-430e-9b59-1915210d543d
+md"""
+$H_0: \mu = \mu_0$
+
+$H_1: \mu \neq \mu_0$
+
+Precisamos ajustar a distribuição do bootstrap igualando a média dessas amostras a μ₀
+
+$x_i^*=x_i - \bar{x}_n + \mu_0, i=1,\dots,n$
+
+($x_i - \bar{x}_n$) centra a distribuição em $0$.
+
+O que gera
+
+$\bar{x^*}^1_n, \bar{x^*}^2_n, \dots$
+
+Comparamos então com os quantis gerados para ver se o valor gerado está no intervalo, se não, rejeitamos $H_0$.
+"""
+
+# ╔═╡ 4231b1e8-c83f-47a7-9120-65def4e37b39
+md"""
+---
+
+Definimos μ₀ $=$ $μ₀
+"""
+
+# ╔═╡ 27b54444-a5ae-48ae-8d11-4f2d5a4866c2
+begin
+	amostra_media_ajustada = amostra_original .- X_bar .+ μ₀
+
+	hip_test_sigma = [mean(rand(Normal(μ₀, σ), n)) for _ in 1:nr]
+	hip_test_param = [mean(rand(Normal(μ₀, σ_bar), n)) for _ in 1:nr]
+	hip_test_n_param = [mean(sample(amostra_media_ajustada, n)) for _ in 1:nr] # Boots n param
+
+	interval_sigma = RealInterval(quantile(hip_test_sigma, (α, 1-α))...)
+    interval_param = RealInterval(quantile(hip_test_param, (α, 1-α))...)
+	interval_n_param = RealInterval(quantile(hip_test_n_param, (α, 1-α))...)
+end;
+
+# ╔═╡ be466817-7654-494b-b0af-b7eccc2f0069
+md"""
+**Teste de hipótese com sigma conhecido**
+"""
+
+# ╔═╡ 5c35534c-a14c-4e83-8a90-0c5c63ed2023
+begin
+	sigma_lb = interval_sigma.lb
+	sigma_ub = interval_sigma.ub
+	
+	texto_rejeitar_sigma = md"""
+	Rejeitamos $H_0$	
+	
+	X\_bar: $X_bar
+	
+	Limite superior e inferior: ($(round(sigma_lb, digits=4)), $(round(sigma_ub, digits=4)))
+	"""
+	texto_nrejeitar_sigma = md"Não rejeitamos $H_0$: $(round(sigma_lb, digits=4)) ≤ $(round(X_bar, digits=4)) ≤ $(round(sigma_ub, digits=4))"
+
+	X_bar ∈ interval_sigma ? texto_nrejeitar_sigma : texto_rejeitar_sigma
+end
+
+# ╔═╡ 5db9e682-a5e0-4aab-b04d-4831a7060ba3
+md"""
+**Teste de hipótese com ambos parâmetros estimados da amostra**
+"""
+
+# ╔═╡ c479216a-b2cd-4acf-89e5-f534c54f5923
+begin
+	param_lb = interval_param.lb
+	param_ub = interval_param.ub
+	
+	texto_rejeitar_param = md"""
+	Rejeitamos $H_0$	
+	
+	X\_bar: $X_bar
+	
+	Limite superior e inferior: ($(round(param_lb, digits=4)), $(round(param_ub, digits=4)))
+	"""
+	texto_nrejeitar_param = md"Não rejeitamos $H_0$: $(round(param_lb, digits=4)) ≤ $(round(X_bar, digits=4)) ≤ $(round(param_ub, digits=4))"
+
+	X_bar ∈ interval_param ? texto_nrejeitar_param : texto_rejeitar_param
+end
+
+# ╔═╡ 67c398e6-b3a8-4c5b-85de-cd7a1e63897b
+md"""
+**Teste de hipótese para o bootstrap**
+"""
+
+# ╔═╡ 6eada4d5-f708-4866-a030-fa6e606b9a75
+begin
+	n_param_lb = interval_n_param.lb
+	n_param_ub = interval_n_param.ub
+	
+	texto_rejeitar_n_param = md"""
+	Rejeitamos $H_0$
+	
+	X\_bar: $X_bar
+	
+	Limite superior e inferior: ($(round(n_param_lb, digits=4)), $(round(n_param_ub, digits=4)))
+	"""
+	texto_nrejeitar_n_param = md"Não rejeitamos $H_0$: $(round(n_param_lb, digits=4)) ≤ $(round(X_bar, digits=4)) ≤ $(round(n_param_ub, digits=4))"
+
+	X_bar ∈ interval_n_param ? texto_nrejeitar_n_param : texto_rejeitar_n_param
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1633,7 +1795,8 @@ version = "1.8.1+0"
 # ╟─8591ae41-7882-467a-8131-8beb4a6e88f0
 # ╠═72d0af07-f12b-4065-a04f-4d66eddaa5d4
 # ╠═11ff7827-45be-4603-87d9-3dc64524c09b
-# ╟─22047530-2e1c-41c6-b2bd-1b5217ca74ab
+# ╠═22047530-2e1c-41c6-b2bd-1b5217ca74ab
+# ╟─70f0a115-4331-4766-87dd-f0aa3e74b7c6
 # ╟─00a022b2-ea06-4484-bc6f-b5103eafc32a
 # ╟─a7feddb4-3102-47c8-96ce-9a3e25655b1e
 # ╟─b22d28e4-4c8f-4bb1-b704-495c77b0ec2b
@@ -1641,7 +1804,20 @@ version = "1.8.1+0"
 # ╟─ef4f7d21-041d-4a79-a221-892b6a9691e2
 # ╟─121fc82b-554d-4742-9937-35bac195f127
 # ╟─a05bb0a5-c0f7-4963-a459-8174d0d3ec91
-# ╠═820fb8d0-e0bc-4fa1-805d-16c152e7d427
+# ╟─820fb8d0-e0bc-4fa1-805d-16c152e7d427
 # ╟─8fae44f7-8ece-42c8-8997-2433153793a9
+# ╟─96984b89-af6f-4bb4-b9dc-13353ebd4f28
+# ╟─bff22759-c707-4d88-989a-18b589c66147
+# ╠═1f04553f-5976-4ac2-bd3d-9e8226a02025
+# ╟─efa7db79-1dfa-41c1-80ae-e2970b68c7fa
+# ╟─977948f5-0f81-430e-9b59-1915210d543d
+# ╟─4231b1e8-c83f-47a7-9120-65def4e37b39
+# ╠═27b54444-a5ae-48ae-8d11-4f2d5a4866c2
+# ╟─be466817-7654-494b-b0af-b7eccc2f0069
+# ╟─5c35534c-a14c-4e83-8a90-0c5c63ed2023
+# ╟─5db9e682-a5e0-4aab-b04d-4831a7060ba3
+# ╟─c479216a-b2cd-4acf-89e5-f534c54f5923
+# ╟─67c398e6-b3a8-4c5b-85de-cd7a1e63897b
+# ╠═6eada4d5-f708-4866-a030-fa6e606b9a75
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
