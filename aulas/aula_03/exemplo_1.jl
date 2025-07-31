@@ -107,6 +107,12 @@ begin
 	
 	xᵢ = collect(range(0, 10, length=n)) |> SVector{n}
 	yᵢ = SVector{n}([β₀ + β₁ * i + rand(ϵ) for i in xᵢ])
+
+	data = Table(x=xᵢ, y=yᵢ)
+
+	model = lm(@formula(y~x), data)
+
+	β₁_hat = model.model.pp.beta0[2]
 end;
 
 # ╔═╡ e0765769-3cfd-4c62-b326-00f65a85a20a
@@ -132,39 +138,48 @@ for i in 1:nr
 end
 
 # ╔═╡ 3d50ff2a-99f2-4181-bd62-2bcf9a088ef1
-β₁_hat = stack(β₁_btsp; dims=1)[:, 2];
-
-# ╔═╡ 8e344ce4-8af9-4e9f-926d-6718ba12e87d
-begin
-	IC_li_β₁_btsp, IC_ls_β₁_btsp = quantile(β₁_hat, (α, 1-α))
-
-	md"""
-	## Intervalo de confiança
-	
-	Limite inferior: $IC_li_β₁_btsp
-	
-	Limite superior: $IC_ls_β₁_btsp
-	"""
-end
+β₁_hat_btsp = stack(β₁_btsp; dims=1)[:, 2];
 
 # ╔═╡ 6501ef09-14f3-478b-8c0f-cc7deadaad68
 md"""
 ## Teste de hipótese
 """
 
-# ╔═╡ 3c4ba056-3d0f-49a9-b8c8-c9012abafb0f
-mean(β₁_hat .- mean(β₁_hat))
-
-# ╔═╡ a697cb88-63bd-4679-bfbe-71359c6383d8
+# ╔═╡ 0c82a964-a400-4ba0-b7b7-7903ee44a29c
 begin
+	yᵢ_hyp = SVector{n}([β₀ + μ₀ * i + rand(ϵ) for i in xᵢ])
+	β₁_btsp_hyp = []
+
+	for i in 1:nr
+		amostra_x_btsp_hyp = sample(xᵢ, n) |> sort
+		indices_hyp = find_indices(amostra_x_btsp_hyp)
+		amostra_y_btsp_hyp = yᵢ_hyp[indices_hyp]
 	
+		data_hyp = Table(x=amostra_x_btsp_hyp, y=amostra_y_btsp_hyp)
+	
+		model_hyp = lm(@formula(y~x), data_hyp)
+	
+		push!(β₁_btsp_hyp, model_hyp.model.pp.beta0)
+	end
+
+	μ₀_series = stack(β₁_btsp_hyp; dims=1)[:, 2]
+	interval_hyp = RealInterval(quantile(μ₀_series, (α, 1-α))...)
+
+	interval_lb_hyp = interval_hyp.lb
+	interval_ub_hyp = interval_hyp.ub
 end
+
+# ╔═╡ bf964ff5-7b28-4743-bd33-9005bb4fd9af
+println(interval_lb_hyp)
+
+# ╔═╡ 061dca9e-ed66-4532-a47a-3474aad6799a
+println(interval_ub_hyp)
 
 # ╔═╡ 881dacb9-2eed-4de1-8baf-496f2257e35f
 begin
-	β₁_hat_bar = mean(β₁_hat)
+	β₁_hat_bar = mean(β₁_hat_btsp)
 
-	amostra_media_ajustada = β₁_hat .- β₁_hat_bar .+ μ₀
+	amostra_media_ajustada = β₁_hat_btsp .- β₁_hat_bar .+ μ₀
 
 	hip_test = [mean(sample(amostra_media_ajustada, n)) for _ in 1:nr]
 
@@ -198,19 +213,10 @@ md"""
 
 # ╔═╡ 75874734-e3a7-49cf-ac33-9923d511443a
 begin
-	p = scatter(xᵢ, yᵢ, smooth=:true, markersize=.2, markercolor=:green)
-	for i in 1:nr
-		beta = β₁_btsp[i]
-		plot!(
-			p,
-			xᵢ,
-			beta[1] .+ xᵢ .* beta[2],
-			legend=false,
-			linestyle=:dash,
-			linealpha=.1
-		)
-	end
-	current()
+	density(β₁_hat_btsp, label="Distribuição dos parâmetros", legendfontsize=7)
+	plot!([β₁, β₁], [0, 20], label="Valor verdadeiro", linestyle=:dot)
+	plot!([β₁_hat, β₁_hat], [0, 20], label="Valor estimado por OLS", linestyle=:dot)
+	ylims!((0, 13.5))
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1740,10 +1746,10 @@ version = "1.8.1+0"
 # ╠═8e5e1941-505e-433a-a92c-99c4dc927346
 # ╠═f1da355c-610b-4e26-95f3-46c15f332a8c
 # ╠═3d50ff2a-99f2-4181-bd62-2bcf9a088ef1
-# ╟─8e344ce4-8af9-4e9f-926d-6718ba12e87d
 # ╟─6501ef09-14f3-478b-8c0f-cc7deadaad68
-# ╠═3c4ba056-3d0f-49a9-b8c8-c9012abafb0f
-# ╠═a697cb88-63bd-4679-bfbe-71359c6383d8
+# ╠═0c82a964-a400-4ba0-b7b7-7903ee44a29c
+# ╠═bf964ff5-7b28-4743-bd33-9005bb4fd9af
+# ╠═061dca9e-ed66-4532-a47a-3474aad6799a
 # ╠═881dacb9-2eed-4de1-8baf-496f2257e35f
 # ╠═bb81cee7-a3ac-468b-aa3b-dfe51253daee
 # ╠═51d41e96-1115-465f-b931-c215cf4ef5b0
