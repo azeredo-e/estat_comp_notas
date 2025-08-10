@@ -32,11 +32,11 @@ Tese de doutorado do Flávio, página 60 e pouco tem essas informações do come
 
 # ╔═╡ 938f4c31-6134-4f8c-92c1-1834aa8bb1b8
 begin
-	nr = 10000
+	nr = 10_000
 	
 	n = 500
-	li = 0
-	ls = 10
+	li = 0.0
+	ls = 10.0
 
 	β₀ = 3
 	β₁ = 1
@@ -77,87 +77,62 @@ md"""
 ## Dando *fit* com uma regressão local
 """
 
-# ╔═╡ 2c8f0ab0-f4bf-409a-9e3b-614d99cabd81
-md"""
-TODO: Implementar o `dpill` para seleção da *bandwith*.
-"""
-
 # ╔═╡ 54a8e224-cd47-4627-98a5-4b928064fcd1
 begin
 	X_reg, Y_reg = locpoly(X, Y, .25)
+	X_dpill, Y_dpill = locpoly(X, Y, dpill(X, Y))
 	
 	scatter(X, Y, label="Dados originais")
-	plot!(X_reg, Y_reg, linewidth=2, label="Curva estimada")
+	plot!(X_reg, Y_reg, linewidth=2, label="Curva estimada, bandwidth=.25")
+	plot!(X_dpill, Y_dpill, linewidth=2, label="Curva estimada, dpill")
 	plot!(
 		X,
 		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		linewidth=2,
 		label="Dados verdadeiros"
 	)
 end
 
-# ╔═╡ 5f05ac85-c3df-4ad3-b9ea-8d069ecbf123
+# ╔═╡ ab14e65a-4351-4dc5-a00c-74642f2ec3a3
 md"""
-### Usando bootstrap
+## Fazendo uma simulação
 """
 
-# ╔═╡ 7d5a65ca-a65a-4baf-a2b4-a2db4af4b767
+# ╔═╡ dbecd916-3acf-4edf-9f21-d8f7dba21cb2
+simulation_data = Vector{Vector{Float64}}(undef, nr);
+
+# ╔═╡ 08b03c52-b4fd-4fa2-b5f5-b17cac0a197f
+for i in 1:nr
+	ϵ_nr = rand(𝒩, n)
+	Y_nr = @. β₀ + β₁ * sin(2 * π * vi * X) + ϵ_nr
+
+	_, dots = locpoly(X, Y_nr, dpill(X, Y), range_x=[li, ls], gridsize=501)
+
+	simulation_data[i] = dots
+end;
+
+# ╔═╡ 95498c95-669b-440d-9389-48512ab553a5
 begin
-	Y_btsp = sample(Y, n)
-	locpol_data = locpoly(Y_btsp, .32)
-	plot(locpol_data, label="Bootstrap data")
-	plot!(𝒩, label="Normal padrão")
+	mx_simulation_data = stack(simulation_data, dims=1)
+	
+	sim_Y_data = [mean(mx_simulation_data[:, i]) for i in 1:length(X)]
+	sim_sigma = [std(mx_simulation_data[:, i]) for i in 1:length(X)]
+end;
+
+# ╔═╡ ff37cfc8-c631-48f3-9fa0-a6f61c0f4a82
+begin
+	plot(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		label="Dados verdadeiros", size=(700, 200),
+		legend_font_pointsize=5
+	)
+	plot!(X, sim_Y_data, label="Resultados da simulação")
+	plot!(X, sim_Y_data .+ (2 .* sim_sigma),
+		  label="Dois desvios a mais", linestyle=:dashdot)
+	plot!(X, sim_Y_data .- (2 .* sim_sigma),
+		  label="Dois desvios a menos", linestyle=:dashdot)
 end
-
-# ╔═╡ b057e73c-c5e1-45f5-ab90-e0cc171eb9fb
-begin # conforme eu altero o \beta_0 o centro da distribuição altera
-	Y_btsp_den = sample(Y, n)
-
-	density(Y_btsp_den, label="Bootstrap data")
-	plot!(𝒩, label="Normal padrão")
-end
-
-# ╔═╡ 941c8ac4-8721-4982-9d30-723364704074
-1.06 * std(Y_btsp_den) * n ^ (-1/5) # Silvernman's rule for bandwidth estimation
-
-# ╔═╡ 10d61f6e-60dc-4fb8-bd50-4c006818f2ec
-md"""
-## Teste de hipótese
-"""
-
-# ╔═╡ 8160ca4d-96b8-422d-9008-42b195e31bf2
-quantile(Y, (.05, 0.95))
-
-# ╔═╡ 73c0c6f0-7730-488f-8481-0d2403e90e7e
-
-
-# ╔═╡ aa0e247e-caf1-469e-8449-308a0725dd21
-md"""
-Kernel:
-
-$\hat{f}(x) = \frac{1}{Th}\sum_{t=1}^TK_h(x-x_t)$
-
-$K_h(x) = \frac{x-x_t}{h}$
-
-Epanechinikov é o kernel ótimo baseado na minimização do MSE
-"""
-
-# ╔═╡ 38daf323-7a61-489c-ab33-8441e32c1442
-md"""
-Modelo aditivo:
-
-$Y_t = c + m_1(x_1) + \dots + m_t(x_t) + \epsilon_t$
-
-onde $m_t(x_t)$ é qualquer função, tornando-o não paramétrico
-"""
-
-# ╔═╡ a9709cef-3ca6-4409-b4c8-70b77bdab579
-md"""
-fazer bootstrap na amostra (a cada resampling obter uma fdp e comparar com a normal original)
-
-no codigo do flavio, dpill é para achar o valor ótimo de h
-
-
-"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1610,17 +1585,11 @@ version = "1.9.2+0"
 # ╟─8d91d3c8-9401-4794-95a0-f3dde6f81ff0
 # ╠═6e808c59-ec67-480f-ae2e-1fc188c6f900
 # ╟─54131ec1-9e98-42a6-96fd-f37f66a752ce
-# ╟─2c8f0ab0-f4bf-409a-9e3b-614d99cabd81
 # ╠═54a8e224-cd47-4627-98a5-4b928064fcd1
-# ╟─5f05ac85-c3df-4ad3-b9ea-8d069ecbf123
-# ╠═7d5a65ca-a65a-4baf-a2b4-a2db4af4b767
-# ╠═b057e73c-c5e1-45f5-ab90-e0cc171eb9fb
-# ╠═941c8ac4-8721-4982-9d30-723364704074
-# ╟─10d61f6e-60dc-4fb8-bd50-4c006818f2ec
-# ╠═8160ca4d-96b8-422d-9008-42b195e31bf2
-# ╠═73c0c6f0-7730-488f-8481-0d2403e90e7e
-# ╠═aa0e247e-caf1-469e-8449-308a0725dd21
-# ╠═38daf323-7a61-489c-ab33-8441e32c1442
-# ╠═a9709cef-3ca6-4409-b4c8-70b77bdab579
+# ╟─ab14e65a-4351-4dc5-a00c-74642f2ec3a3
+# ╠═dbecd916-3acf-4edf-9f21-d8f7dba21cb2
+# ╠═08b03c52-b4fd-4fa2-b5f5-b17cac0a197f
+# ╠═95498c95-669b-440d-9389-48512ab553a5
+# ╠═ff37cfc8-c631-48f3-9fa0-a6f61c0f4a82
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
