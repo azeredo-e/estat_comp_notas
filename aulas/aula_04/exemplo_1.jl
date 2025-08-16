@@ -9,8 +9,10 @@ begin
 	using Plots, StatsPlots
 	using Random, Statistics, Distributions
 	using SpecialFunctions # Preciso para o KernSmooth
+end;
 
-	# include("src/KernSmooth.jl")
+# ╔═╡ 210f0c05-36a5-4ace-baaa-ec01a6bb48bb
+begin
 	include("/Users/eduardo/Developer/KernSmooth.jl/src/KernSmooth.jl")
 	using .KernSmooth
 end;
@@ -95,7 +97,7 @@ end
 
 # ╔═╡ ab14e65a-4351-4dc5-a00c-74642f2ec3a3
 md"""
-## Fazendo uma simulação
+## Simulação com $nr réplicas
 """
 
 # ╔═╡ dbecd916-3acf-4edf-9f21-d8f7dba21cb2
@@ -1578,6 +1580,7 @@ version = "1.9.2+0"
 
 # ╔═╡ Cell order:
 # ╠═87850700-6170-11f0-367b-cd34be34a98e
+# ╠═210f0c05-36a5-4ace-baaa-ec01a6bb48bb
 # ╟─24fd05a3-caf4-4ef0-a283-e458d77efb14
 # ╠═938f4c31-6134-4f8c-92c1-1834aa8bb1b8
 # ╠═ce3d1a1f-290f-486e-98aa-807cfa91beef

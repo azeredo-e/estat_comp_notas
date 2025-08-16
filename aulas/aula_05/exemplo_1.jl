@@ -4,247 +4,336 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ a6eed8b0-5f62-11f0-21a5-2becd87964b5
-begin	
+# ╔═╡ 6cbd8aeb-3988-4123-bc92-8caf4943ba39
+begin
 	using Plots, StatsPlots
-	using Statistics, Random, Distributions, GLM, TypedTables, StaticArrays
-	using BenchmarkTools
+	using Statistics, Random, Distributions
+	using SpecialFunctions # Para o locpoly
+
+	using Splines2, GLM
 end
 
-# ╔═╡ c89b23f1-0972-453c-a4c8-2c1143c67a80
+# ╔═╡ d7b51f50-e3e2-4136-aaa4-8920de7dd338
+begin # Função locpoly e dpill
+	include("/Users/eduardo/Developer/KernSmooth.jl/src/KernSmooth.jl")
+	using .KernSmooth
+end
+
+# ╔═╡ 31f71b6c-7c89-41e2-8aa6-2340896d29a9
+begin # Função k_fold_cv
+	include("src/CrossValidation.jl")
+	using .CrossValidation
+end
+
+# ╔═╡ 6ec9dfc2-6e6a-11f0-22eb-27ac10b06606
 md"""
-# Bootstrap para Regressão
+# Splines
+
+Dar uma olhada no ISLR, going beyond linearity
 """
 
-# ╔═╡ 642b7850-f721-4718-9232-555551d3529f
+# ╔═╡ 77558108-5606-4296-ab78-1da412c0ace7
 md"""
-$Y_i = \beta_0 + \beta_1 X_i + \epsilon_i$
+## Exercício
 
-$\epsilon \sim IID(0, \sigma^2)$
+### Comparar Regressão Polinomial Local com Regressão Spline
 
- $X_i$ deterministico
-$\beta_0$, $\beta_1$ e $\sigma^2$ constantes desconhecidas
+1. Usar exemplo simulado em aula (senoide) para um número grande de réplicas, $n_r$;
 
-Focaremos na estimação de $\beta_1$ para os seguintes casos
+2. Usando $n_r = 1$, implementar bootstrap não paramétrico construindo ICs para a curva estimada;
 
-1. $\epsilon_i \sim IID(0, \sigma^2)$
-
-2. $\epsilon \sim t(4)$
-
-ICs e TH com $H_0: \beta_1 = 0$ e $H_1 \neq 0$.
-
-Podemos fazer o bootstrap de dois modos
-
-1) como antes, reamostradno as pares (ou trios, etc, vetores com dimensão k+1, onde k é o número de covariáveis) e estimando $\beta_1$ para cada réplica chgando a $\hat{\beta}^i_1, i=1, \dots, nr$;
-
-2) reamostrando dos resíduos dos modelos
-
-$(x_1, y_1),\dots,(x_n, y_n) \overset{MQO}{\longrightarrow} \beta_0, \beta_1, \sigma^2$
-
-obter $r_i = y_i (\hat{\beta_0}+\hat{beta_1}x_i)$
-
-obter $e_i = r_i - \bar{r_n}$
-
-reamostrar os $e_i$s
-
-$e_1^{*(1)}, \dots\ e_n^{*(1)}$
-
-$y_i^* = \hat{\beta_0} + \hat{\beta}_1 x_i + e_i^{*(1)}$
-
-$(x_1, y_1^*),\dots,(x_n, y_n^n) \overset{MQO}{\longrightarrow} \hat{\beta}_1^{(1)}$
-
----
-
-$e_1^{*(2)}, \dots\ e_n^{*(2)}$
-
-$y_i^* = \hat{\beta_0} + \hat{\beta}_1 x_i + e_i^{*(2)}$
-
-$(x_1, y_1^*),\dots,(x_n, y_n^n) \overset{MQO}{\longrightarrow} \hat{\beta}_1^{(2)}$
-
----
-
-repetimos nr vezes
-
+3. "Verificar" se uma regressão polinomial global paramétrica consegue um bom ajuste.
 """
 
-# ╔═╡ 08cfdd53-a75c-4709-a8ae-36a32190fccf
+# ╔═╡ 253140f8-2b79-4366-a46f-23c4794c0bfe
+function find_indices(lista)
+	n = length(lista)
+	index_map = Dict{eltype(lista), Int}()
+	result = Vector{Int16}(undef, n)
+	
+	for i in 1:n
+		x = lista[i]
+		result[i] = get!(index_map, x, i)
+	end
+	
+	return result
+end
+
+# ╔═╡ 753c9963-00a4-4211-a420-d800977ad4a5
 begin
 	nr = 10_000
-	n = 1000 # numero de pontos da regreassão
-	β₀ = 1
-	β₁ = 2
-	σ = 1
+	
+	n = 500
+	li = 0.0
+	ls = 10.0
 
-	ϵ = Normal(0, σ)
-	# ϵ = TDist(4)
-
-	γ = 0.95
-
-	# Para o teste de hipótese
-	μ₀ = 0
+	β₀ = 3
+	β₁ = 1
+	vi = .25
+	
+	σ = .7
+	μ = 0
+	𝒩 = Normal(μ, σ)
 
 	Random.seed!(42)
 end;
 
-# ╔═╡ 504e1b3e-8887-4a59-8080-efe0c96829a1
+# ╔═╡ ebd95bf5-ab16-477b-b329-0ef4691b9c08
+MSE(y, y_pred) = mean((y .- y_pred).^2)
+
+# ╔═╡ eae37863-98fc-4e10-9d6d-60dbb41d76b4
 begin
-	function find_indices(lista)
-	    n = length(lista)
-	    index_map = Dict{eltype(lista), Int}()
-	    result = Vector{Int16}(undef, n)
-	    
-	    for i in 1:n
-	        x = lista[i]
-	        result[i] = get!(index_map, x, i)
-	    end
-	    
-	    return result
+	ϵ = rand(𝒩, n)
+
+	X = range(li, ls, length=n) |> collect
+	Y = @. β₀ + β₁ * sin(2 * π * vi * X) + ϵ
+end;
+
+# ╔═╡ be7f9427-c752-448b-9f14-b9b72f6bbafe
+scatter(X, Y, label=false)
+
+# ╔═╡ 71f9281f-ca9d-4e48-ae31-91963a67a225
+md"""
+## *Fit* com a população
+"""
+
+# ╔═╡ bcda3e74-1c1d-4ef6-af18-60a18b9f2a41
+md"""
+### Regressão Polinomial Local
+"""
+
+# ╔═╡ 98a0089f-39c1-40b1-929e-f94095617f6c
+begin
+	X_locpoly, Y_locpoly = locpoly(X, Y, dpill(X, Y), gridsize=n+1)
+
+	scatter(X, Y, label=false)
+	plot!(X_locpoly, Y_locpoly, linewidth=2, label="Dados estimados pela locpoly")
+	plot!(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		linewidth=2,
+		label="Dados verdadeiros"
+	)
+end
+
+# ╔═╡ 864b8b1a-a7be-4491-9b4e-616192189513
+md"""
+### Splines
+"""
+
+# ╔═╡ ee48c2cb-141d-46a7-ac0a-c436b792e4de
+md"""
+Para selecionar o número de graus de liberdade uso um método de k-fold Cross Validation e usando 10 folds.
+
+Testei entre 1 e 25 graus de liberdade.
+"""
+
+# ╔═╡ 1e8f1be6-0c73-4c55-85e0-eea9c3969b2a
+begin
+	# Calcula o EQM dos Natural BSplines e BSplines para diferentes nós
+	MSE_data_bs = []
+	MSE_data_ns = []
+	for n_knots in 1:25
+		error = k_fold_cv(bs_, n_knots, X, Y, 10, MSE)
+		push!(MSE_data_bs, error)
+	end
+	for n_knots in 1:25
+		error = k_fold_cv(ns_, n_knots, X, Y, 10, MSE)
+		push!(MSE_data_ns, error)
+	end
+
+	p_bs = begin
+		scatter(1:25, MSE_data_bs, label=false)
+		plot!(1:25, MSE_data_bs,
+			label=false,
+	    	title="EQM dos BSplines",
+		)
+	end
+	p_ns = begin
+		scatter(1:25, MSE_data_ns,
+			label=false,
+		)
+		plot!(1:25, MSE_data_ns,
+			label=false,
+			title="EQM dos Natural BSplines",
+		)
 	end
 end;
 
-# ╔═╡ 520a323d-d022-4ae1-803e-7905d34150d3
+# ╔═╡ d9668f93-476e-4fff-87ae-0eb72d64ceee
+plot(p_bs, p_ns, layout=(2, 1), size=(700, 400))
+
+# ╔═╡ d791ab79-5d0b-4ae4-a3a6-c07302016fa1
 begin
-	α = 1 - γ
-	
-	xᵢ = collect(range(0, 10, length=n)) |> SVector{n}
-	yᵢ = SVector{n}([β₀ + β₁ * i + rand(ϵ) for i in xᵢ])
+	min_MSE_bs, min_knot_bs = findmin(MSE_data_bs)
+	min_MSE_ns, min_knot_ns = findmin(MSE_data_ns)
 
-	data = Table(x=xᵢ, y=yᵢ)
+	md"""
+	O valor mínimo do EQM achado para o BSpline foi $min_MSE_bs para $min_knot_bs nós.
 
-	model = lm(@formula(y~x), data)
-
-	β₁_hat = model.model.pp.beta0[2]
-end;
-
-# ╔═╡ e0765769-3cfd-4c62-b326-00f65a85a20a
-scatter(xᵢ, yᵢ, legend=false)
-
-# ╔═╡ 8e5e1941-505e-433a-a92c-99c4dc927346
-begin
-	β₁_btsp = []
-	indices = Vector{Int16}(undef, n)
-end;
-
-# ╔═╡ f1da355c-610b-4e26-95f3-46c15f332a8c
-for i in 1:nr
-	amostra_x_btsp = sample(xᵢ, n) |> sort
-	indices = find_indices(amostra_x_btsp)
-	amostra_y_btsp = yᵢ[indices]
-
-	data = Table(x=amostra_x_btsp, y=amostra_y_btsp)
-
-	model = lm(@formula(y~x), data)
-
-	push!(β₁_btsp, model.model.pp.beta0)
-end
-
-# ╔═╡ 3d50ff2a-99f2-4181-bd62-2bcf9a088ef1
-β₁_hat_btsp = stack(β₁_btsp; dims=1)[:, 2];
-
-# ╔═╡ 6a77022d-2426-4473-9d25-e485cd8f90e9
-md"""
-## Comparação com a forma analítica
-"""
-
-# ╔═╡ 75874734-e3a7-49cf-ac33-9923d511443a
-begin
-	density(β₁_hat_btsp, label="Distribuição dos parâmetros", legendfontsize=7)
-	plot!([β₁, β₁], [0, 20], label="Valor verdadeiro", linestyle=:dot)
-	plot!([β₁_hat, β₁_hat], [0, 20], label="Valor estimado por OLS", linestyle=:dot)
-	ylims!((0, 13.5))
-end
-
-# ╔═╡ 6501ef09-14f3-478b-8c0f-cc7deadaad68
-md"""
-## Teste de hipótese
-"""
-
-# ╔═╡ 0c82a964-a400-4ba0-b7b7-7903ee44a29c
-begin
-	yᵢ_hyp = SVector{n}([β₀ + μ₀ * i + rand(ϵ) for i in xᵢ])
-	β₁_btsp_hyp = []
-
-	for i in 1:nr
-		amostra_x_btsp_hyp = sample(xᵢ, n) |> sort
-		indices_hyp = find_indices(amostra_x_btsp_hyp)
-		amostra_y_btsp_hyp = yᵢ_hyp[indices_hyp]
-	
-		data_hyp = Table(x=amostra_x_btsp_hyp, y=amostra_y_btsp_hyp)
-
-		model_hyp = lm(@formula(y~x), data_hyp)
-
-		push!(β₁_btsp_hyp, model_hyp.model.pp.beta0)
-	end
-
-	μ₀_series = stack(β₁_btsp_hyp; dims=1)[:, 2]
-	interval_hyp = RealInterval(quantile(μ₀_series, (α, 1-α))...)
-	t_value = quantile(TDist(n-2), α/2) |> abs
-end;
-
-# ╔═╡ 68a91d7a-467c-4552-8888-5335fec791ba
-begin
-	histogram(μ₀_series, normalize=true)
-end
-
-# ╔═╡ 281d3209-06d3-4989-ba27-52007f57898d
-mean(β₁_hat_btsp)/std(β₁_hat_btsp) > t_value
-
-# ╔═╡ ea008493-b620-4301-b123-b4e4abdc3250
-md"""
-Ver com o flávio
-
-Consequently, it is a simple matter to compute the probability of observing any number equal to |t| or larger in absolute value, assuming β1 = 0
-"""
-
-# ╔═╡ 881dacb9-2eed-4de1-8baf-496f2257e35f
-begin
-	β₁_hat_bar = mean(β₁_hat_btsp)
-
-	amostra_media_ajustada = β₁_hat_btsp .- β₁_hat_bar .+ μ₀
-
-	hip_test = [mean(sample(amostra_media_ajustada, n)) for _ in 1:nr]
-
-	interval = RealInterval(quantile(hip_test, (α, 1-α))...)
-
-	interval_lb = interval.lb
-	interval_ub = interval.ub
-end;
-
-# ╔═╡ 51d41e96-1115-465f-b931-c215cf4ef5b0
-begin
-	texto_rejeitar = md"""
-	Rejeitamos $H_0$.
-	
-	 $\bar{\hat{\beta_1}}$: $(β₁_hat_bar)
-	
-	Limite superior e inferior: ($(round(interval_lb, digits=4)), $(round(interval_ub, digits=4)))
+	O valor mínimo do EQM achado para o Natural BSpline foi $min_MSE_ns para $min_knot_ns nós.
 	"""
-	texto_nrejeitar = md"Não rejeitamos $H_0$: $(round(interval_lb, digits=4)) ≤ $(round(β₁_hat_bar, digits=4)) ≤ $(round(interval_ub, digits=4))"
-
-	β₁_hat_bar ∈ interval ? texto_nrejeitar : texto_rejeitar
 end
+
+# ╔═╡ 0bea6fc4-aed1-4b5e-a070-9474c2ac048f
+md"""
+#### BSplines
+"""
+
+# ╔═╡ 989a9da4-2296-4904-aa8c-eb0faecb79e7
+begin
+	model_bs = bs_(X, df=min_knot_bs, intercept=true)
+	pol_bs = lm(model_bs(X), Y)
+	pred_bs = predict(pol_bs, model_bs(X))
+
+	scatter(X, Y, label=false)
+	plot!(X, pred_bs, linewidth=2, label="Dados estimados pelo BSplines")
+	plot!(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		linewidth=2,
+		label="Dados verdadeiros"
+	)
+end
+
+# ╔═╡ 037fcbf1-73c8-4aa5-8421-6bc418337d24
+md"""
+#### Natural BSplines
+"""
+
+# ╔═╡ d3b9b430-78af-4349-9520-b1904afe0d85
+begin
+	model_ns = bs_(X, df=min_knot_ns, intercept=true)
+	pol_ns = lm(model_ns(X), Y)
+	pred_ns = predict(pol_ns, model_ns(X))
+
+	scatter(X, Y, label=false)
+	plot!(X, pred_ns, linewidth=2, label="Dados estimados pelo Natural BSplines")
+	plot!(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		linewidth=2,
+		label="Dados verdadeiros"
+	)
+end
+
+# ╔═╡ 9effac75-dc58-46da-ab09-29649f7cd777
+md"""
+### Comparando todos os resultados
+"""
+
+# ╔═╡ 141e7e72-5a96-4f40-95dc-c1e3c3beb34f
+begin
+	scatter(X, Y, label=false)
+	plot!(X_locpoly, Y_locpoly, linewidth=2, label="Dados estimados pela locpoly")
+	plot!(X, pred_bs, linewidth=2, label="Dados estimados pelo BSplines")
+	plot!(X, pred_ns, linewidth=2, label="Dados estimados pelo Natural BSplines")
+	plot!(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		linewidth=2,
+		label="Dados verdadeiros",
+		size=(700, 300),
+		legendfontsize=6
+	)
+end
+
+# ╔═╡ dc69c587-5759-4a00-9924-f2b01ddfdf75
+begin
+	locpoly_MSE = MSE(Y, Y_locpoly[2:end])
+	bs_MSE = MSE(Y, pred_bs)
+	ns_MSE = MSE(Y, pred_ns)
+
+	md"""
+	O EQM de cada um dos métodos testado foi o seguinte
+
+	LocPoly: $locpoly_MSE
+	
+	BSplines: $bs_MSE
+
+	Natural BSplines: $ns_MSE
+	
+	"""
+end
+
+# ╔═╡ d17b8a85-a60b-441b-b967-961177130838
+md"""
+## Simulações com Bootstrap
+"""
+
+# ╔═╡ d371d2b2-ff90-485b-9657-8086f8aa9012
+md"""
+### Simulação paramétrica
+"""
+
+# ╔═╡ 64d33d1c-bdbe-4eaa-803c-8c859361630d
+begin
+	sim_data_locpoly = Vector{Vector{Float64}}(undef, nr)
+	sim_data_spline = Vector{Vector{Float64}}(undef, nr)
+end;
+
+# ╔═╡ 0bc1948b-8d3e-4083-a661-f49649add264
+for i in 1:nr
+	ϵ_nr = rand(𝒩, n)
+	Y_nr = @. β₀ + β₁ * sin(2 * π * vi * X) + ϵ_nr
+
+	_, dots = locpoly(X, Y_nr, .25, range_x=[li, ls], gridsize=501)
+	sim_data_locpoly[i] = dots[2:end]
+
+	model_bs_nr = bs_(X, df=min_knot_bs, intercept=true)
+	model_lm_nr = lm(model_bs_nr(X), Y_nr)
+	pred_nr = predict(model_lm_nr, model_bs_nr(X))
+	sim_data_spline[i] = pred_nr
+end;
+
+# ╔═╡ 001425bf-9505-4ce0-91e6-42e99a5af20d
+begin
+	mx_sim_data_locpoly = stack(sim_data_locpoly, dims=1)
+	mx_sim_data_spline = stack(sim_data_spline, dims=1)
+	
+	predsim_locpoly = [mean(mx_sim_data_locpoly[:, i]) for i in 1:length(X)]
+	predsim_spline = [mean(mx_sim_data_spline[:, i]) for i in 1:length(X)]
+
+	plot(
+		X,
+		β₀ .+ β₁ .* sin.(2 .* π .* vi .* X),
+		label="Dados verdadeiros", size=(700, 300),
+		legend_font_pointsize=6
+	)
+	plot!(X, predsim_locpoly, label="Resultados da simulação locpoly")
+	plot!(X, predsim_spline, label="Resultados da simulação Spline")
+end
+
+# ╔═╡ 2003f869-f58e-4577-9e07-1b48e267a69f
+md"""
+### Simulação não paramétrica
+"""
+
+# ╔═╡ 16ed852e-141a-4895-a5e5-a34d225db3f1
+
+
+# ╔═╡ f778ba5a-90ab-41c5-9bfc-fd5a310efa2c
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 GLM = "38e38edf-8417-5370-95a0-9cbb8c7f171a"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+Splines2 = "5a560754-308a-11ea-3701-ef72685e98d6"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
-TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
 
 [compat]
-BenchmarkTools = "~1.6.0"
 Distributions = "~0.25.120"
 GLM = "~1.9.0"
 Plots = "~1.40.13"
-StaticArrays = "~1.9.13"
+SpecialFunctions = "~2.5.1"
+Splines2 = "~0.2.1"
 StatsPlots = "~0.15.7"
-TypedTables = "~1.4.6"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -253,7 +342,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "0f43a5076e8376f30a5fbd87506d00b891f33bd4"
+project_hash = "fe4bc2f49d9b3fd70c41a6a17aca57466928edf9"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -313,12 +402,6 @@ version = "1.1.0"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
-[[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "e38fbc49a620f5d0b660d7f543db1009fe0f8336"
-uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.6.0"
-
 [[deps.BitFlags]]
 git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
@@ -338,9 +421,9 @@ version = "1.18.5+0"
 
 [[deps.ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra"]
-git-tree-sha1 = "1713c74e00545bfe14605d2a2be1712de8fbcb58"
+git-tree-sha1 = "06ee8d1aa558d2833aa799f6f0b31b30cada405f"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "1.25.1"
+version = "1.25.2"
 weakdeps = ["SparseArrays"]
 
     [deps.ChainRulesCore.extensions]
@@ -360,9 +443,9 @@ version = "0.7.8"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
-git-tree-sha1 = "403f2d8e209681fcbd9468a8514efff3ea08452e"
+git-tree-sha1 = "a656525c8b46aa6a1c76891552ed5381bb32ae7b"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.29.0"
+version = "3.30.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -392,9 +475,9 @@ version = "0.13.1"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
-git-tree-sha1 = "8ae8d32e09f0dcf42a36b90d4e17f5dd2e4c4215"
+git-tree-sha1 = "3a3dfb30697e96a440e4149c8c51bf32f818c0f3"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.16.0"
+version = "4.17.0"
 weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
@@ -448,12 +531,6 @@ deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
-
-[[deps.Dictionaries]]
-deps = ["Indexing", "Random", "Serialization"]
-git-tree-sha1 = "a86af9c4c4f33e16a2b2ff43c2113b2f390081fa"
-uuid = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
-version = "0.4.5"
 
 [[deps.Distances]]
 deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
@@ -598,27 +675,27 @@ version = "1.9.0"
 
 [[deps.GR]]
 deps = ["Artifacts", "Base64", "DelimitedFiles", "Downloads", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Preferences", "Printf", "Qt6Wayland_jll", "Random", "Serialization", "Sockets", "TOML", "Tar", "Test", "p7zip_jll"]
-git-tree-sha1 = "4424dca1462cc3f19a0e6f07b809ad948ac1d62b"
+git-tree-sha1 = "1828eb7275491981fa5f1752a5e126e8f26f8741"
 uuid = "28b8d3ca-fb5f-59d9-8090-bfdbd6d07a71"
-version = "0.73.16"
+version = "0.73.17"
 
 [[deps.GR_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "FreeType2_jll", "GLFW_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pixman_jll", "Qt6Base_jll", "Zlib_jll", "libpng_jll"]
-git-tree-sha1 = "d7ecfaca1ad1886de4f9053b5b8aef34f36ede7f"
+git-tree-sha1 = "27299071cc29e409488ada41ec7643e0ab19091f"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
-version = "0.73.16+0"
+version = "0.73.17+0"
 
-[[deps.Gettext_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll", "Pkg", "XML2_jll"]
-git-tree-sha1 = "9b02998aba7bf074d14de89f9d37ca24a1a0b046"
-uuid = "78b55507-aeef-58d4-861c-77aaff3498b1"
-version = "0.21.0+0"
+[[deps.GettextRuntime_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll"]
+git-tree-sha1 = "45288942190db7c5f760f59c04495064eedf9340"
+uuid = "b0724c58-0f36-5564-988d-3bb0596ebc4a"
+version = "0.22.4+0"
 
 [[deps.Glib_jll]]
-deps = ["Artifacts", "Gettext_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libiconv_jll", "Libmount_jll", "PCRE2_jll", "Zlib_jll"]
-git-tree-sha1 = "fee60557e4f19d0fe5cd169211fdda80e494f4e8"
+deps = ["Artifacts", "GettextRuntime_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libiconv_jll", "Libmount_jll", "PCRE2_jll", "Zlib_jll"]
+git-tree-sha1 = "35fbd0cefb04a516104b8e183ce0df11b70a3f1a"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
-version = "2.84.0+0"
+version = "2.84.3+0"
 
 [[deps.Graphite2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -633,9 +710,9 @@ version = "1.0.2"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "PrecompileTools", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
-git-tree-sha1 = "f93655dc73d7a0b4a368e3c0bce296ae035ad76e"
+git-tree-sha1 = "ed5e9c58612c4e081aecdb6e1a479e18462e041e"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "1.10.16"
+version = "1.10.17"
 
 [[deps.HarfBuzz_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll"]
@@ -648,11 +725,6 @@ deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
 git-tree-sha1 = "68c173f4f449de5b438ee67ed0c9c748dc31a2ec"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.28"
-
-[[deps.Indexing]]
-git-tree-sha1 = "ce1566720fd6b19ff3411404d4b977acd4814f9f"
-uuid = "313cdc1a-70c2-5d6a-ae34-0150d3930a38"
-version = "1.1.1"
 
 [[deps.IntelOpenMP_jll]]
 deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl"]
@@ -693,9 +765,9 @@ version = "0.1.11"
 
 [[deps.JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
-git-tree-sha1 = "a007feb38b422fbdab534406aeca1b86823cb4d6"
+git-tree-sha1 = "0533e564aae234aff59ab625543145446d8b6ec2"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
-version = "1.7.0"
+version = "1.7.1"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -711,15 +783,15 @@ version = "3.1.1+0"
 
 [[deps.KernelDensity]]
 deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "StatsBase"]
-git-tree-sha1 = "7d703202e65efa1369de1279c162b915e245eed1"
+git-tree-sha1 = "ba51324b894edaf1df3ab16e2cc6bc3280a2f1a7"
 uuid = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
-version = "0.6.9"
+version = "0.6.10"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "170b660facf5df5de098d866564877e119141cbd"
+git-tree-sha1 = "059aabebaa7c82ccb853dd4a0ee9d17796f7e1bc"
 uuid = "c1c5ebd0-6772-5130-a774-d5fcae4a789d"
-version = "3.100.2+0"
+version = "3.100.3+0"
 
 [[deps.LERC_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -923,9 +995,9 @@ version = "1.1.3"
 
 [[deps.NearestNeighbors]]
 deps = ["Distances", "StaticArrays"]
-git-tree-sha1 = "8a3271d8309285f4db73b4f662b1b290c715e85e"
+git-tree-sha1 = "ca7e18198a166a1f3eb92a3650d53d94ed8ca8a1"
 uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
-version = "0.4.21"
+version = "0.4.22"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -946,10 +1018,10 @@ weakdeps = ["Adapt"]
     OffsetArraysAdaptExt = "Adapt"
 
 [[deps.Ogg_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "887579a3eb005446d514ab7aeac5d1d027658b8f"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "b6aa4566bb7ae78498a5e68943863fa8b5231b59"
 uuid = "e7412a2a-1a6e-54c0-be00-318e2571c051"
-version = "1.3.5+1"
+version = "1.3.6+0"
 
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
@@ -969,9 +1041,9 @@ version = "1.5.0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "9216a80ff3682833ac4b733caa8c00390620ba5d"
+git-tree-sha1 = "87510f7292a2b21aeff97912b0898f9553cc5c2c"
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.0+0"
+version = "3.5.1+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
@@ -981,9 +1053,9 @@ version = "0.5.6+0"
 
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "6703a85cb3781bd5909d48730a67205f3f31a575"
+git-tree-sha1 = "c392fc5dd032381919e3b22dd32d6443760ce7ea"
 uuid = "91d4177d-7536-5919-b921-800302f37372"
-version = "1.3.3+0"
+version = "1.5.2+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
@@ -1077,10 +1149,6 @@ deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
 
-[[deps.Profile]]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
-version = "1.11.0"
-
 [[deps.PtrArrays]]
 git-tree-sha1 = "1d36ef11a9aaf1e8b74dacc6a731dd1de8fd493d"
 uuid = "43287f4e-b6f4-7ad1-bb20-aadabca52c3d"
@@ -1106,9 +1174,9 @@ version = "6.8.2+1"
 
 [[deps.Qt6Wayland_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Qt6Base_jll", "Qt6Declarative_jll"]
-git-tree-sha1 = "2766344a35a1a5ec1147305c4b343055d7c22c90"
+git-tree-sha1 = "e1d5e16d0f65762396f9ca4644a5f4ddab8d452b"
 uuid = "e99dba38-086e-5de3-a5b1-6e4c66e897c3"
-version = "6.8.2+0"
+version = "6.8.2+1"
 
 [[deps.QuadGK]]
 deps = ["DataStructures", "LinearAlgebra"]
@@ -1189,9 +1257,9 @@ version = "0.7.0"
 
 [[deps.Scratch]]
 deps = ["Dates"]
-git-tree-sha1 = "3bac05bc7e74a75fd9cba4295cde4045d9fe2386"
+git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
-version = "1.2.1"
+version = "1.3.0"
 
 [[deps.SentinelArrays]]
 deps = ["Dates", "Random"]
@@ -1249,11 +1317,11 @@ weakdeps = ["ChainRulesCore"]
     [deps.SpecialFunctions.extensions]
     SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
 
-[[deps.SplitApplyCombine]]
-deps = ["Dictionaries", "Indexing"]
-git-tree-sha1 = "c06d695d51cfb2187e6848e98d6252df9101c588"
-uuid = "03a91e81-4c3e-53e1-a0a4-9c0c8f19dd66"
-version = "1.2.3"
+[[deps.Splines2]]
+deps = ["LinearAlgebra", "OffsetArrays", "Statistics"]
+git-tree-sha1 = "0c929daf7cb741b611aa9f89f81d53e2fd9c291a"
+uuid = "5a560754-308a-11ea-3701-ef72685e98d6"
+version = "0.2.1"
 
 [[deps.StableRNGs]]
 deps = ["Random"]
@@ -1382,16 +1450,10 @@ git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.11.3"
 
-[[deps.TypedTables]]
-deps = ["Adapt", "Dictionaries", "Indexing", "SplitApplyCombine", "Tables", "Unicode"]
-git-tree-sha1 = "84fd7dadde577e01eb4323b7e7b9cb51c62c60d4"
-uuid = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
-version = "1.4.6"
-
 [[deps.URIs]]
-git-tree-sha1 = "cbbebadbcc76c5ca1cc4b4f3b0614b3e603b5000"
+git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.5.2"
+version = "1.6.1"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -1444,16 +1506,10 @@ uuid = "a44049a8-05dd-5a78-86c9-5fde0876e88c"
 version = "1.3.243+0"
 
 [[deps.Wayland_jll]]
-deps = ["Artifacts", "EpollShim_jll", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll", "XML2_jll"]
-git-tree-sha1 = "49be0be57db8f863a902d59c0083d73281ecae8e"
+deps = ["Artifacts", "EpollShim_jll", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll"]
+git-tree-sha1 = "96478df35bbc2f3e1e791bc7a3d0eeee559e60e9"
 uuid = "a2964d1f-97da-50d4-b82a-358c7fce9d89"
-version = "1.23.1+0"
-
-[[deps.Wayland_protocols_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "5db3e9d307d32baba7067b13fc7b5aa6edd4a19a"
-uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
-version = "1.36.0+0"
+version = "1.24.0+0"
 
 [[deps.Widgets]]
 deps = ["Colors", "Dates", "Observables", "OrderedCollections"]
@@ -1466,12 +1522,6 @@ deps = ["LinearAlgebra", "SparseArrays"]
 git-tree-sha1 = "c1a7aa6219628fcd757dede0ca95e245c5cd9511"
 uuid = "efce3f68-66dc-5838-9240-27a6d6f5f9b6"
 version = "1.0.0"
-
-[[deps.XML2_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
-git-tree-sha1 = "b8b243e47228b4a3877f1dd6aee0c5d56db7fcf4"
-uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
-version = "2.13.6+1"
 
 [[deps.XZ_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1565,15 +1615,15 @@ version = "1.1.3+0"
 
 [[deps.Xorg_xcb_util_cursor_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_image_jll", "Xorg_xcb_util_jll", "Xorg_xcb_util_renderutil_jll"]
-git-tree-sha1 = "04341cb870f29dcd5e39055f895c39d016e18ccd"
+git-tree-sha1 = "c5bf2dad6a03dfef57ea0a170a1fe493601603f2"
 uuid = "e920d4aa-a673-5f3a-b3d7-f755a4d47c43"
-version = "0.1.4+0"
+version = "0.1.5+0"
 
 [[deps.Xorg_xcb_util_image_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Xorg_xcb_util_jll"]
-git-tree-sha1 = "0fab0a40349ba1cba2c1da699243396ff8e94b97"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_jll"]
+git-tree-sha1 = "f4fc02e384b74418679983a97385644b67e1263b"
 uuid = "12413925-8142-5f55-bb0e-6d7ca50bb09b"
-version = "0.4.0+1"
+version = "0.4.1+0"
 
 [[deps.Xorg_xcb_util_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll"]
@@ -1629,22 +1679,16 @@ uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
 version = "1.5.7+1"
 
 [[deps.eudev_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "gperf_jll"]
-git-tree-sha1 = "431b678a28ebb559d224c0b6b6d01afce87c51ba"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "c3b0e6196d50eab0c5ed34021aaa0bb463489510"
 uuid = "35ca27e7-8b34-5b7f-bca9-bdc33f59eb06"
-version = "3.2.9+0"
+version = "3.2.14+0"
 
 [[deps.fzf_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "b6a34e0e0960190ac2a4363a1bd003504772d631"
 uuid = "214eeab7-80f7-51ab-84ad-2988db7cef09"
 version = "0.61.1+0"
-
-[[deps.gperf_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "3cad2cf2c8d80f1d17320652b3ea7778b30f473f"
-uuid = "1a1c6b14-54f6-533d-8383-74cd7377aa70"
-version = "3.3.0+0"
 
 [[deps.libaom_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1677,27 +1721,27 @@ version = "1.13.4+0"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "8a22cf860a7d27e4f3498a0fe0811a7957badb38"
+git-tree-sha1 = "646634dd19587a56ee2f1199563ec056c5f228df"
 uuid = "f638f0a6-7fb0-5443-88ba-1cc74229b280"
-version = "2.0.3+0"
+version = "2.0.4+0"
 
 [[deps.libinput_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "eudev_jll", "libevdev_jll", "mtdev_jll"]
-git-tree-sha1 = "ad50e5b90f222cfe78aa3d5183a20a12de1322ce"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "eudev_jll", "libevdev_jll", "mtdev_jll"]
+git-tree-sha1 = "91d05d7f4a9f67205bd6cf395e488009fe85b499"
 uuid = "36db933b-70db-51c0-b978-0f229ee0e533"
-version = "1.18.0+0"
+version = "1.28.1+0"
 
 [[deps.libpng_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
-git-tree-sha1 = "002748401f7b520273e2b506f61cab95d4701ccf"
+git-tree-sha1 = "07b6a107d926093898e82b3b1db657ebe33134ec"
 uuid = "b53b4c65-9356-5827-b1ea-8c7a1a84506f"
-version = "1.6.48+0"
+version = "1.6.50+0"
 
 [[deps.libvorbis_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Ogg_jll", "Pkg"]
-git-tree-sha1 = "490376214c4721cdaca654041f635213c6165cb3"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Ogg_jll"]
+git-tree-sha1 = "11e1772e7f3cc987e9d3de991dd4f6b2602663a5"
 uuid = "f27f6e37-5d2b-51aa-960f-b287f2bc3b7a"
-version = "1.3.7+2"
+version = "1.3.8+0"
 
 [[deps.mtdev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1734,31 +1778,45 @@ uuid = "dfaa095f-4041-5dcd-9319-2fabd8486b76"
 version = "3.5.0+0"
 
 [[deps.xkbcommon_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Wayland_jll", "Wayland_protocols_jll", "Xorg_libxcb_jll", "Xorg_xkeyboard_config_jll"]
-git-tree-sha1 = "c950ae0a3577aec97bfccf3381f66666bc416729"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll", "Xorg_xkeyboard_config_jll"]
+git-tree-sha1 = "fbf139bce07a534df0e699dbb5f5cc9346f95cc1"
 uuid = "d8fb68d0-12a3-5cfd-a85a-d49703b185fd"
-version = "1.8.1+0"
+version = "1.9.2+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═a6eed8b0-5f62-11f0-21a5-2becd87964b5
-# ╟─c89b23f1-0972-453c-a4c8-2c1143c67a80
-# ╟─642b7850-f721-4718-9232-555551d3529f
-# ╠═08cfdd53-a75c-4709-a8ae-36a32190fccf
-# ╟─504e1b3e-8887-4a59-8080-efe0c96829a1
-# ╠═520a323d-d022-4ae1-803e-7905d34150d3
-# ╠═e0765769-3cfd-4c62-b326-00f65a85a20a
-# ╠═8e5e1941-505e-433a-a92c-99c4dc927346
-# ╠═f1da355c-610b-4e26-95f3-46c15f332a8c
-# ╠═3d50ff2a-99f2-4181-bd62-2bcf9a088ef1
-# ╟─6a77022d-2426-4473-9d25-e485cd8f90e9
-# ╠═75874734-e3a7-49cf-ac33-9923d511443a
-# ╟─6501ef09-14f3-478b-8c0f-cc7deadaad68
-# ╠═0c82a964-a400-4ba0-b7b7-7903ee44a29c
-# ╠═68a91d7a-467c-4552-8888-5335fec791ba
-# ╠═281d3209-06d3-4989-ba27-52007f57898d
-# ╠═ea008493-b620-4301-b123-b4e4abdc3250
-# ╠═881dacb9-2eed-4de1-8baf-496f2257e35f
-# ╠═51d41e96-1115-465f-b931-c215cf4ef5b0
+# ╟─6ec9dfc2-6e6a-11f0-22eb-27ac10b06606
+# ╟─77558108-5606-4296-ab78-1da412c0ace7
+# ╠═6cbd8aeb-3988-4123-bc92-8caf4943ba39
+# ╠═d7b51f50-e3e2-4136-aaa4-8920de7dd338
+# ╠═31f71b6c-7c89-41e2-8aa6-2340896d29a9
+# ╠═253140f8-2b79-4366-a46f-23c4794c0bfe
+# ╠═753c9963-00a4-4211-a420-d800977ad4a5
+# ╠═ebd95bf5-ab16-477b-b329-0ef4691b9c08
+# ╠═eae37863-98fc-4e10-9d6d-60dbb41d76b4
+# ╠═be7f9427-c752-448b-9f14-b9b72f6bbafe
+# ╟─71f9281f-ca9d-4e48-ae31-91963a67a225
+# ╟─bcda3e74-1c1d-4ef6-af18-60a18b9f2a41
+# ╠═98a0089f-39c1-40b1-929e-f94095617f6c
+# ╟─864b8b1a-a7be-4491-9b4e-616192189513
+# ╟─ee48c2cb-141d-46a7-ac0a-c436b792e4de
+# ╠═1e8f1be6-0c73-4c55-85e0-eea9c3969b2a
+# ╟─d9668f93-476e-4fff-87ae-0eb72d64ceee
+# ╟─d791ab79-5d0b-4ae4-a3a6-c07302016fa1
+# ╟─0bea6fc4-aed1-4b5e-a070-9474c2ac048f
+# ╟─989a9da4-2296-4904-aa8c-eb0faecb79e7
+# ╟─037fcbf1-73c8-4aa5-8421-6bc418337d24
+# ╟─d3b9b430-78af-4349-9520-b1904afe0d85
+# ╟─9effac75-dc58-46da-ab09-29649f7cd777
+# ╠═141e7e72-5a96-4f40-95dc-c1e3c3beb34f
+# ╟─dc69c587-5759-4a00-9924-f2b01ddfdf75
+# ╠═d17b8a85-a60b-441b-b967-961177130838
+# ╠═d371d2b2-ff90-485b-9657-8086f8aa9012
+# ╠═64d33d1c-bdbe-4eaa-803c-8c859361630d
+# ╠═0bc1948b-8d3e-4083-a661-f49649add264
+# ╠═001425bf-9505-4ce0-91e6-42e99a5af20d
+# ╠═2003f869-f58e-4577-9e07-1b48e267a69f
+# ╠═16ed852e-141a-4895-a5e5-a34d225db3f1
+# ╠═f778ba5a-90ab-41c5-9bfc-fd5a310efa2c
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
