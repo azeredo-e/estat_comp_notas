@@ -1,8 +1,8 @@
 # Exercícios
 
-Entregar no dia que é realizado o seminário
+Entrega dia 2025-10-05
 
-1. Aplicar Bootstrap a série temporal;
-2. Realizar os exercícios da aula 4, exemplo 1;
+1. Aplicar Bootstrap à série temporal;
+2. Regresão polinomial e Splines;
 3. Comparar Random Forest e Decision Tree com GAM;
-4. TBD.
+4. Comparar Ridge e Boosting.
