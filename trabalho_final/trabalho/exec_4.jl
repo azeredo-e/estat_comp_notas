@@ -6,14 +6,9 @@ using InteractiveUtils
 
 # ╔═╡ 0f8211e4-8213-11f0-3486-65a5aeaa4e07
 md"""
-# Comparar L2 - Boosting
+# Rodar a simulação de do Gibbs Sampling.
 
-Usar "Trees", "Splines", Local Linear Regression.
-
-Focando em 1) erro de estimação/previsão e 2) tempo de processamento.
-
-Fazendo um loooping com resíduos do passo anterior.
-(De repente, usa o pacote gbm só para trees, e implementa splines e LLG à mão).
+Olhar o código no teams como base e as fotos que eu tirei do quadro.
 """
 
 # ╔═╡ 1b04dc58-f647-4c14-b97d-04978ba4d7eb

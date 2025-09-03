@@ -19,7 +19,7 @@ end
 md"""
 # Métodos de Árvores e GAMs
 
-Propor uma simulação comparando modelos aditivos, árvores de regressão e random forest. Considere a inclusão dos seguintes aspectos
+Propor uma simulação comparando modelos aditivos, árvores de regressão, random forest e Boosting. Considere a inclusão dos seguintes aspectos
 
 1. Relações lineares e não lineares;
 2. Variação do número de covariáveis;
