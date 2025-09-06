@@ -64,7 +64,7 @@ Contudo, as estimativas da integração MC tinham uma variância muito alta, ass
 
 truque da reparametriazação
 
-Nossa v.a. $w$ assume a forma uma forma determinística $w = \mu + \sigma \odot \epsilon $
+Nossa v.a. $w$ assume a forma uma forma determinística $w = \mu + \sigma \odot \epsilon$
 
 ## Slide 12
 
@@ -89,6 +89,8 @@ O método não e muito usado por ser computacionalmente custoso
 Fora do padrão que vemos até então de backpropagation por isso não muito visto
 
 ## Slide 17
+
+BBB é um método baseado em reparametrização que permite mudar a forma do ELBO facilitando o uso de integração MC para resolver o problema
 
 Modelos BBB mostram uma boa média de previsões, mas subestimam a variância quando comparada com uma GP
 

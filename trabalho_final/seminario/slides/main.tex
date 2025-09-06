@@ -40,7 +40,7 @@
 % Optional subtitle
 \subtitle{Estatítica Computacional}
 
-\date{Agosto de 2025}
+\date{Setembro de 2025}
 
 % Author information
 \author{Eduardo Azeredo}
@@ -238,7 +238,7 @@
     \frametitle{HMC}
 
     \begin{itemize}
-        \item HMC introduz uma variável auxiliar $\mathbf{p}$, chamada de momento/energia cinética, e define a função energia hamiltoniana como
+        \item HMC introduz uma variável auxiliar $\mathbf{v}$, chamada de momento/energia cinética, e define a função energia hamiltoniana como
         $$ H(\mathbf{w}, \mathbf{p}) = U(\mathbf{w}) + K(\mathbf{v}) $$
         onde $U(\mathbf{w}) = -\log \left[ p(\mathbf{w}) \mathcal{L}(\mathbf{w}) \right]$ é a energia potencial e $K(\mathbf{v}) = \sum_{i=1}^{d}\frac{v_i^2}{2m_i}$ é a energia cinética. A distribuição canônica é então dada por
         $$ p(\mathbf{w}, \mathbf{v}) = \frac{1}{Z} \exp (-U(\mathbf{w})) \exp (-K(\mathbf{v})) $$
